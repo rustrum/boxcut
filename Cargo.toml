@@ -1,9 +1,16 @@
 [package]
 name = "boxcut"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
+license-file = "LICENSE.md"
+description = """
+CLI програмка для создания SVG дизайнов карторнных коробок для лазерного резака.
+"""
+repository = "https://github.com/rustrum/boxcut"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[[bin]]
+name = "boxcut"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.68"
