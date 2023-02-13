@@ -11,10 +11,10 @@ use svg::node::element::Path;
 use svg::Document;
 use vinyl::ArgsVinyl;
 
-use crate::common::{draw_square, CutType, Point, VIEWPORT_OFFSET};
-use anyhow::Result;
+use crate::common::{draw_square, CutType, Point, DEFAULT_FILE_NAME, VIEWPORT_OFFSET};
+use anyhow::{bail, Result};
 use env_logger::{Builder, Target};
-use log::LevelFilter;
+use log::{log, LevelFilter};
 
 #[derive(Subcommand, Debug)]
 enum BoxType {
@@ -35,29 +35,30 @@ impl BoxType {
 #[derive(Parser, Debug)]
 #[clap(name = "Laser cut box generator", version)]
 struct Args {
-    /// Внутреняя высота
+    /// Внутреняя высота (мм).
     #[clap(global = true, long, short = 'H')]
     height: Option<Decimal>,
 
-    /// Внутреняя длинна (более длинная сторона)
+    /// Внутреняя длинна / более длинная сторона (мм).
     #[clap(global = true, long, short = 'L')]
     length: Option<Decimal>,
 
-    /// Внутреняя ширина (более короткая сторона)
+    /// Внутреняя ширина / более короткая сторона (мм).
     #[clap(global = true, long, short = 'W')]
     width: Option<Decimal>,
 
-    /// Толщина картона (2мм по умолчанию)
+    /// Толщина картона (2мм по умолчанию).
     #[clap(global = true, long, short = 'T')]
     thickness: Option<Decimal>,
 
-    /// Имя файла (путь к файлу) с результатом.
-    /// Если файл существует он будет перезаписан
+    /// Имя/путь к .SVG файлу с результатом,
+    /// если не указано будет создан файл в текущей папке,
+    /// существущий файл будет перезаписан.
     #[clap(global = true, long, short = 'F')]
-    file: Option<Decimal>,
+    file: Option<String>,
 
-    /// Рисовать линии изгиба прерывисто.
-    /// Что бы не возиться с настройками лазерника и просто резать по всем линиям.
+    /// [НЕ работает пока] Рисовать линии изгиба прерывисто,
+    /// что бы не возиться с настройками и просто резать.
     #[clap(global = true, long, short = 'D')]
     dashed: Option<bool>,
 
@@ -73,6 +74,7 @@ impl ArgsGlobal {
             length: args.length,
             width: args.width,
             thickness: args.thickness,
+            file: args.file.clone(),
         })
     }
 }
@@ -85,19 +87,21 @@ fn main() {
     builder.format_target(false);
     builder.init();
 
-    match draw() {
-        Err(e) => log::error!("{e}"),
-        Ok(d) => write_svg(d),
-    };
+    if let Err(e) = execute() {
+        log::error!("{e}");
+        std::process::exit(42);
+    }
 }
 
-fn draw() -> Result<DrawResult> {
+fn execute() -> Result<()> {
     let args = Args::parse();
     let globs = ArgsGlobal::from(&args)?;
-    args.box_type.draw_with(globs)
+    let draw_res = args.box_type.draw_with(globs.clone())?;
+
+    write_svg(globs, draw_res)
 }
 
-fn write_svg(drawing: DrawResult) {
+fn write_svg(args: ArgsGlobal, drawing: DrawResult) -> Result<()> {
     log::trace!("DRAW PATHS: \n{:?}", drawing.paths);
 
     let max = drawing.max.shift_xy(VIEWPORT_OFFSET, VIEWPORT_OFFSET);
@@ -110,5 +114,32 @@ fn write_svg(drawing: DrawResult) {
         document = document.add(p);
     }
 
-    svg::save("image.svg", &document).unwrap();
+    let mut save_path = DEFAULT_FILE_NAME.to_string();
+
+    let mut save_path = match args.file {
+        None => {
+            log::info!(
+                "Используется имя файла по умолчанию {}",
+                drawing.default_file_name
+            );
+            drawing.default_file_name
+        }
+        Some(f) => {
+            if f.to_uppercase().ends_with(".SVG") {
+                f
+            } else {
+                bail!("ДА щаз! Имя файла должно заканчиваться на .svg а ты что ввел?");
+            }
+        }
+    };
+
+    if std::path::Path::new(&save_path).exists() {
+        log::warn!("Существующий файл будет перезаписан");
+    }
+
+    let res = svg::save(&save_path, &document).map_err(anyhow::Error::from);
+    if res.is_ok() {
+        log::info!("Файл записан: {}", save_path);
+    }
+    res
 }

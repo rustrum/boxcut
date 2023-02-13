@@ -17,6 +17,8 @@ lazy_static! {
     static ref INNER_L: Decimal = Decimal::from(32);
 }
 
+const VINYL_FIE_NAME: &str = "LaserCutVinylBox.svg";
+
 /// SDFDS
 #[derive(Args, Debug)]
 pub struct ArgsVinyl {
@@ -60,7 +62,7 @@ impl VinylBoxCfg {
         }
 
         if globs.width.is_none() {
-            bail!("Нужно обязательно указать ширину коробки");
+            bail!("Нужно обязательно указать ширину коробки в мм.");
         }
 
         Ok(Self {
@@ -88,7 +90,7 @@ impl VinylBox {
         Self {
             cfg,
             offset,
-            result: DrawResult::empty(),
+            result: DrawResult::empty(VINYL_FIE_NAME.into()),
         }
     }
 

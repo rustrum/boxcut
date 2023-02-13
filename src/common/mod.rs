@@ -12,30 +12,39 @@ pub const VIEWPORT_OFFSET: f64 = 10.0;
 
 pub const DEFAULT_THICKNESS: f64 = 2.0;
 
-#[derive(Debug)]
+pub const DEFAULT_FILE_NAME: &str = "LaserCutBox.svg";
+
+#[derive(Debug, Clone)]
 pub struct ArgsGlobal {
     pub height: Option<Decimal>,
     pub length: Option<Decimal>,
     pub width: Option<Decimal>,
     pub thickness: Option<Decimal>,
+    pub file: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct DrawResult {
+    pub default_file_name: String,
     pub paths: Vec<Path>,
     pub max: Point,
 }
 
 impl DrawResult {
-    pub fn empty() -> Self {
+    pub fn empty(default_file_name: String) -> Self {
         Self {
+            default_file_name,
             paths: Vec::new(),
             max: Point::new(0.0, 0.0),
         }
     }
 
     pub fn new(paths: Vec<Path>, max: Point) -> Self {
-        Self { paths, max }
+        Self {
+            default_file_name: DEFAULT_FILE_NAME.into(),
+            paths,
+            max,
+        }
     }
 
     pub fn append(&mut self, other: DrawResult) {
