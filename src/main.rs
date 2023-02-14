@@ -1,3 +1,4 @@
+mod box_cube;
 mod common;
 mod vinyl;
 
@@ -11,6 +12,7 @@ use svg::node::element::Path;
 use svg::Document;
 use vinyl::ArgsVinyl;
 
+use crate::box_cube::ArgsBoxCube;
 use crate::common::{draw_square, CutType, Point, DEFAULT_FILE_NAME, VIEWPORT_OFFSET};
 use anyhow::{bail, Result};
 use env_logger::{Builder, Target};
@@ -21,6 +23,9 @@ enum BoxType {
     /// Коробка для виниловых пластинок.
     /// Игнорируется длинна и высота коробки, можно менять только ширину.
     Vinyl(ArgsVinyl),
+
+    /// Коробка-параллелипипед с крышкой.
+    BoxCube(ArgsBoxCube),
 }
 
 impl BoxType {
@@ -28,6 +33,7 @@ impl BoxType {
         log::debug!("{:?}", globs);
         match self {
             BoxType::Vinyl(args) => args.draw_with(globs),
+            BoxType::BoxCube(args) => args.draw_with(globs),
         }
     }
 }
@@ -96,8 +102,12 @@ fn main() {
 fn execute() -> Result<()> {
     let args = Args::parse();
     let globs = ArgsGlobal::from(&args)?;
-    let draw_res = args.box_type.draw_with(globs.clone())?;
 
+    if globs.thickness.is_none() {
+        bail!("Нужно указать толщину материала");
+    }
+
+    let draw_res = args.box_type.draw_with(globs.clone())?;
     write_svg(globs, draw_res)
 }
 

@@ -78,6 +78,13 @@ impl SquareElement {
         }
     }
 
+    pub fn cut(w: f64, h: f64) -> Self {
+        Self {
+            borders: Borders::new_cut(),
+            square: Square::new(w, h),
+        }
+    }
+
     pub fn new_square(side: f64) -> Self {
         Self::new(side, side)
     }
