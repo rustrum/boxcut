@@ -16,7 +16,7 @@ use crate::box_cube::ArgsBoxCube;
 use crate::common::{draw_square, CutType, Point, DEFAULT_FILE_NAME, VIEWPORT_OFFSET};
 use anyhow::{bail, Result};
 use env_logger::{Builder, Target};
-use log::{log, LevelFilter};
+use log::{log, warn, error, LevelFilter};
 
 #[derive(Subcommand, Debug)]
 enum BoxType {
@@ -41,15 +41,15 @@ impl BoxType {
 #[derive(Parser, Debug)]
 #[clap(name = "Laser cut box generator", version)]
 struct Args {
-    /// Внутреняя высота (мм).
+    /// Наружная высота (мм).
     #[clap(global = true, long, short = 'H')]
     height: Option<Decimal>,
 
-    /// Внутреняя длинна / более длинная сторона (мм).
+    /// Наружная длинна / более длинная сторона (мм).
     #[clap(global = true, long, short = 'L')]
     length: Option<Decimal>,
 
-    /// Внутреняя ширина / более короткая сторона (мм).
+    /// Наружная ширина / более короткая сторона (мм).
     #[clap(global = true, long, short = 'W')]
     width: Option<Decimal>,
 
@@ -107,6 +107,14 @@ fn execute() -> Result<()> {
         bail!("Нужно указать толщину материала");
     }
 
+    if globs.width.is_some() && globs.length.is_some() {
+        let w = globs.width.unwrap();
+        let l = globs.length.unwrap();
+        if w > l {
+            error!("Ширина коробки {}мм должна быть меньше длинны {}мм", w, l);
+        }
+    }
+
     let draw_res = args.box_type.draw_with(globs.clone())?;
     write_svg(globs, draw_res)
 }
@@ -120,13 +128,17 @@ fn write_svg(args: ArgsGlobal, drawing: DrawResult) -> Result<()> {
         .set("height", format!("{}mm", max.y))
         .set("viewBox", (0, 0, max.x, max.y));
 
+    log::info!(
+        "Размеры листа:\n - Ширина:{}мм\n - Высота:{}мм ",
+        max.x,
+        max.y
+    );
+
     for p in drawing.paths {
         document = document.add(p);
     }
 
-    let mut save_path = DEFAULT_FILE_NAME.to_string();
-
-    let mut save_path = match args.file {
+    let save_path = match args.file {
         None => {
             log::info!(
                 "Используется имя файла по умолчанию {}",
@@ -144,7 +156,7 @@ fn write_svg(args: ArgsGlobal, drawing: DrawResult) -> Result<()> {
     };
 
     if std::path::Path::new(&save_path).exists() {
-        log::warn!("Существующий файл будет перезаписан");
+        log::debug!("Существующий файл будет перезаписан");
     }
 
     let res = svg::save(&save_path, &document).map_err(anyhow::Error::from);

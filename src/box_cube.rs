@@ -1,16 +1,12 @@
 use anyhow::{bail, Result};
 use clap_derive::Args;
-use lazy_static::lazy_static;
 use log::log;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 
 use crate::common::{
-    draw_square, ArgsGlobal, Borders, CutType, DrawResult, Origin, Point, Square, SquareElement,
-    VIEWPORT_OFFSET,
+    ArgsGlobal, Borders, CutType, DrawResult, Origin, Point, SquareElement, VIEWPORT_OFFSET,
 };
-
-use svg::node::element::Path;
 
 const BOX_CUBE_FIE_NAME: &str = "LaserCutBoxCube.svg";
 
@@ -83,8 +79,7 @@ struct BoxCube {
 impl BoxCube {
     fn new(cfg: BoxCubeCfg) -> Self {
         // Initial offset
-        let offset = Point::new(cfg.width + cfg.glue_flap + cfg.thick_n(5), 0.0)
-            .shift_xy(VIEWPORT_OFFSET, VIEWPORT_OFFSET);
+        let offset = Point::new(cfg.height, 0.0).shift_xy(VIEWPORT_OFFSET, VIEWPORT_OFFSET);
         Self {
             cfg,
             offset,
@@ -99,224 +94,238 @@ impl BoxCube {
         self.result
     }
 
-    fn draw_top_lid(&mut self) {
-        let cutty = SquareElement::new(self.cfg.thick_n(2), self.cfg.thick_n(1))
-            .with_borders(Borders::new_cut());
+    fn square_cut(&self) -> SquareElement {
+        SquareElement::cut(self.cfg.thickness, self.cfg.thickness)
+    }
 
-        let top_flap = SquareElement::new(self.cfg.glue_flap, self.cfg.lid_height).borders(
-            CutType::Cut,
+    fn square_cut_w(&self) -> SquareElement {
+        SquareElement::cut(self.cfg.thick_n(2), self.cfg.thickness)
+    }
+
+    fn draw_top_lid(&mut self) {
+        let lid_len = self.cfg.length + self.cfg.thick_n(2);
+        let offset = self.offset.shift_nx(self.cfg.thick_n(1));
+
+        let top_flap = SquareElement::new(
+            lid_len - self.cfg.glue_flap * 2.0,
+            self.cfg.lid_height - self.cfg.thickness,
+        )
+        .with_borders(Borders::new_cut())
+        .border_bottom(CutType::Bend);
+
+        self.result
+            .append(top_flap.draw(offset.shift_x(self.cfg.glue_flap)));
+
+        let top_flap_side_cut = SquareElement::new(self.cfg.glue_flap, top_flap.square.h)
+            .with_borders(Borders::nope())
+            .border_bottom(CutType::Cut);
+
+        self.result.append(top_flap_side_cut.draw(offset));
+
+        self.result
+            .append(top_flap_side_cut.draw(offset.shift_x(lid_len).origin(Origin::TopRight)));
+
+        let offset = offset.shift_y(top_flap.square.h);
+
+        let lid_front_side = SquareElement::new(lid_len, self.cfg.lid_height).borders(
             CutType::Nope,
             CutType::Cut,
+            CutType::Bend,
             CutType::Cut,
         );
 
+        self.result
+            .append(lid_front_side.draw(offset));
+
+        let offset = offset.shift_y(lid_front_side.square.h);
+
+        let lid_top_wall = SquareElement::new(lid_len, self.cfg.width + self.cfg.thick_n(2))
+            .borders(CutType::Nope, CutType::Bend, CutType::Bend, CutType::Bend);
+
+        self.result
+            .append(lid_top_wall.draw(offset));
+
+        let side_flap =
+            SquareElement::new(self.cfg.lid_height - self.cfg.thickness, self.cfg.glue_flap)
+                .borders(CutType::Cut, CutType::Cut, CutType::Bend, CutType::Cut);
+
         self.result.append(
-            top_flap.draw(
-                self.offset
-                    .shift_nx(self.cfg.thick_n(4))
-                    .origin(Origin::TopRight),
+            side_flap.draw(
+                offset
+                    .shift_nx(self.cfg.thickness)
+                    .shift_y(self.cfg.thickness)
+                    .origin(Origin::BottomRight),
             ),
         );
 
         self.result.append(
-            top_flap
-                .mirror_vertical()
-                .draw(self.offset.shift_x(self.cfg.length + self.cfg.thick_n(4))),
+            side_flap.mirror_vertical().draw(
+                offset
+                    .shift_xy(lid_len + self.cfg.thickness, self.cfg.thickness)
+                    .origin(Origin::BottomLeft),
+            ),
         );
 
-        self.result.append(
-            SquareElement::new(self.cfg.length + self.cfg.thick_n(8), self.cfg.lid_height)
-                .borders(CutType::Cut, CutType::Bend, CutType::Bend, CutType::Bend)
-                .draw(self.offset.shift_nx(self.cfg.thick_n(4))),
-        );
-
-        self.offset = self.offset.shift_y(self.cfg.lid_height);
-
-        let side_lid = SquareElement::new(
+        let lid_side_wall = SquareElement::new(
             self.cfg.lid_height,
-            self.cfg.width + self.cfg.thick_n(3),
+            self.cfg.width + self.cfg.thickness,
         )
-        .borders(CutType::Cut, CutType::Nope, CutType::Cut, CutType::Cut);
+        .borders(CutType::Nope, CutType::Nope, CutType::Cut, CutType::Cut);
 
         self.result.append(
-            side_lid.draw(
-                self.offset
-                    .shift_nx(self.cfg.thick_n(3))
+            lid_side_wall.draw(
+                offset
                     .shift_y(self.cfg.thick_n(1))
                     .origin(Origin::TopRight),
             ),
         );
 
         self.result.append(
-            side_lid.mirror_vertical().draw(
-                self.offset
-                    .shift_xy(self.cfg.length + self.cfg.thick_n(3), self.cfg.thick_n(1)),
+            lid_side_wall.mirror_vertical().draw(
+                offset
+                    .shift_xy(lid_len, self.cfg.thickness),
             ),
-        );
-
-        self.result.append(
-            SquareElement::new(
-                self.cfg.length + self.cfg.thick_n(6),
-                self.cfg.width + self.cfg.thick_n(4),
-            )
-            .borders(CutType::Nope, CutType::Bend, CutType::Bend, CutType::Bend)
-            .draw(self.offset.shift_nx(self.cfg.thick_n(3))),
         );
 
         // Small cut offs
         self.result.append(
-            cutty.draw(
+            self.square_cut().draw(
+                offset
+                         .origin(Origin::TopRight),
+            ),
+        );
+
+        self.result.append(
+            self.square_cut()
+                .draw(offset.shift_x(lid_len)),
+        );
+
+        self.offset.y = offset.shift_y(lid_top_wall.square.h).y;
+    }
+
+    fn draw_main_walls(&mut self) {
+        let vertical_glue_flap = SquareElement::new(
+            self.cfg.glue_flap + self.cfg.thickness,
+            self.cfg.height - self.cfg.thick_n(2),
+        )
+        .borders(CutType::Cut, CutType::Nope, CutType::Cut, CutType::Cut);
+
+        let back_wall = SquareElement::new(self.cfg.length - self.cfg.thick_n(2), self.cfg.height)
+            .borders(CutType::Nope, CutType::Bend, CutType::Bend, CutType::Bend);
+
+        self.result
+            .append(back_wall.draw(self.offset.shift_x(self.cfg.thickness)));
+
+        self.result.append(
+            self.square_cut_w().draw(
                 self.offset
-                    .shift_nx(self.cfg.thick_n(3))
+                    .shift_x(self.cfg.thick_n(1))
                     .origin(Origin::TopRight),
             ),
         );
 
-        self.result
-            .append(cutty.draw(self.offset.shift_x(self.cfg.length + self.cfg.thick_n(3))));
+        self.result.append(
+            self.square_cut_w().draw(
+                self.offset
+                    .shift_x(back_wall.square.w + self.cfg.thick_n(1)),
+            ),
+        );
 
         self.result.append(
-            cutty.draw(
+            vertical_glue_flap.draw(
+                self.offset
+                    .shift_xy(self.cfg.thickness, self.cfg.thickness)
+                    .origin(Origin::TopRight),
+            ),
+        );
+
+        self.result.append(
+            vertical_glue_flap.mirror_vertical().draw(
+                self.offset
+                    .shift_xy(self.cfg.thickness + back_wall.square.w, self.cfg.thickness),
+            ),
+        );
+
+        self.result.append(
+            self.square_cut_w().draw(
                 self.offset
                     .shift_xy(
-                        self.cfg.thickness * -1.0,
-                        self.cfg.width + self.cfg.thick_n(4),
+                        self.cfg.thickness,
+                        vertical_glue_flap.square.h + self.cfg.thickness,
                     )
                     .origin(Origin::TopRight),
             ),
         );
 
-        self.result.append(cutty.draw(self.offset.shift_xy(
-            self.cfg.length + self.cfg.thick_n(1),
-            self.cfg.width + self.cfg.thick_n(4),
-        )));
-
-        self.offset = self.offset.shift_y(self.cfg.width + self.cfg.thick_n(5));
-    }
-
-    fn draw_main_walls(&mut self) {
-        let wall = SquareElement::new(
-            self.cfg.length + self.cfg.thick_n(2),
-            self.cfg.height + self.cfg.thickness,
-        )
-        .borders(CutType::Nope, CutType::Bend, CutType::Bend, CutType::Bend);
-
-        let wall_bot = SquareElement::new(
-            self.cfg.length + self.cfg.thick_n(4),
-            self.cfg.height + self.cfg.thick_n(2),
-        )
-        .borders(CutType::Nope, CutType::Bend, CutType::Bend, CutType::Bend);
-
-        let wall3 = wall.borders(CutType::Nope, CutType::Cut, CutType::Cut, CutType::Cut);
-
-        let glue_flap = SquareElement::new(
-            self.cfg.glue_flap + self.cfg.thickness,
-            self.cfg.height,
-        )
-        .borders(CutType::Cut, CutType::Nope, CutType::Cut, CutType::Cut);
-
-        let cut = SquareElement::cut(self.cfg.thick_n(2), self.cfg.thickness);
-
         self.result
-            .append(wall.draw(self.offset.shift_nx(self.cfg.thickness)));
-        self.offset = self.offset.shift_y(wall.square.h);
+            .append(self.square_cut_w().draw(self.offset.shift_xy(
+                back_wall.square.w + self.cfg.thickness,
+                vertical_glue_flap.square.h + self.cfg.thickness,
+            )));
 
-        let offset_flap = self
-            .offset
-            .shift_nx(self.cfg.thickness)
-            .origin(Origin::BottomRight);
+        self.offset = self.offset.shift_y(back_wall.square.h);
 
-        self.result
-            .append(glue_flap.draw(offset_flap.shift_ny(self.cfg.thickness)));
-
-        self.result.append(cut.draw(offset_flap));
-
-        let offset_flap = offset_flap
-            .shift_x(wall.square.w)
-            .origin(Origin::BottomLeft);
-
-        self.result.append(
-            glue_flap
-                .mirror_vertical()
-                .draw(offset_flap.shift_ny(self.cfg.thickness)),
+        let bottom_wall = SquareElement::new(self.cfg.length, self.cfg.width).borders(
+            CutType::Nope,
+            CutType::Bend,
+            CutType::Bend,
+            CutType::Bend,
         );
 
-        self.result.append(cut.draw(offset_flap));
-
-        self.result
-            .append(wall_bot.draw(self.offset.shift_nx(self.cfg.thick_n(2))));
+        self.result.append(bottom_wall.draw(self.offset));
 
         self.draw_side_walls();
-        self.offset = self.offset.shift_y(wall_bot.square.h);
+
+        let front_wall = back_wall
+            .borders(CutType::Nope, CutType::Cut, CutType::Cut, CutType::Cut)
+            .height(self.cfg.height - self.cfg.thickness);
+
+        self.offset = self.offset.shift_y(bottom_wall.square.h);
 
         self.result.append(
-            wall3
+            front_wall
                 .border_left(CutType::Bend)
                 .border_right(CutType::Bend)
-                .draw(self.offset.shift_nx(self.cfg.thickness)),
+                .draw(self.offset.shift_x(self.cfg.thickness)),
         );
 
         let offset_flap = self
             .offset
             .shift_y(self.cfg.thickness)
-            .shift_nx(self.cfg.thickness)
+            .shift_x(self.cfg.thickness)
             .origin(Origin::TopRight);
 
-        self.result.append(glue_flap.draw(offset_flap));
-
-        self.result
-            .append(cut.draw(offset_flap.origin(Origin::BottomRight)));
-
-        let offset_flap = offset_flap.shift_x(wall3.square.w);
+        self.result.append(vertical_glue_flap.draw(offset_flap));
 
         self.result.append(
-            glue_flap
+            self.square_cut_w()
+                .draw(offset_flap.origin(Origin::BottomRight)),
+        );
+
+        let offset_flap = offset_flap.shift_x(front_wall.square.w);
+
+        self.result.append(
+            vertical_glue_flap
                 .mirror_vertical()
                 .draw(offset_flap.origin(Origin::TopLeft)),
         );
 
-        self.result
-            .append(cut.draw(offset_flap.origin(Origin::BottomLeft)));
+        self.result.append(
+            self.square_cut_w()
+                .draw(offset_flap.origin(Origin::BottomLeft)),
+        );
     }
 
     fn draw_side_walls(&mut self) {
-        let height = self.cfg.height + self.cfg.thick_n(2);
-        let width = self.cfg.width + self.cfg.thick_n(3);
-
-        let flap = SquareElement::new(self.cfg.glue_flap + self.cfg.thickness, height).borders(
-            CutType::Cut,
-            CutType::Nope,
-            CutType::Cut,
-            CutType::Cut,
-        );
-        let wall = SquareElement::new(width, height).borders(
-            CutType::Cut,
-            CutType::Nope,
-            CutType::Cut,
-            CutType::Bend,
-        );
-
-        self.result.append(
-            wall.draw(
-                self.offset
-                    .shift_nx(self.cfg.thick_n(2))
-                    .origin(Origin::TopRight),
-            ),
-        );
-
-        self.result.append(
-            flap.draw(
-                self.offset
-                    .shift_nx(width + self.cfg.thick_n(2))
-                    .origin(Origin::TopRight),
-            ),
-        );
-
-        let roffset = self.offset.shift_x(self.cfg.length + self.cfg.thick_n(2));
-
-        self.result.append(wall.mirror_vertical().draw(roffset));
+        let wall = SquareElement::new(self.cfg.height - self.cfg.thickness, self.cfg.width)
+            .borders(CutType::Cut, CutType::Nope, CutType::Cut, CutType::Cut);
 
         self.result
-            .append(flap.mirror_vertical().draw(roffset.shift_x(width)));
+            .append(wall.draw(self.offset.origin(Origin::TopRight)));
+
+        self.result.append(
+            wall.mirror_vertical()
+                .draw(self.offset.shift_x(self.cfg.length)),
+        );
     }
 }

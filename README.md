@@ -1,5 +1,6 @@
 # Laser Cut Cardboard Box Generator
 [![crates.io](https://img.shields.io/crates/v/boxcut.svg)](https://crates.io/crates/boxcut)
+
 In a case if you have a laser cutter, a cardboard, and you want to make some boxes to put stuff into.
 
 # Генератор картонных коробок для лазерного резака
