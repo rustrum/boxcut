@@ -14,6 +14,8 @@ use svg::node::element::Path;
 
 const INNER_H: f64 = 330.0;
 const INNER_L: f64 = 330.0;
+const STRIPE_H: f64 = 90.0;
+const STRIPE_HANDLE_OFFSET: f64 = 35.0;
 
 const VINYL_FIE_NAME: &str = "LaserCutVinylBox.svg";
 
@@ -92,8 +94,8 @@ struct VinylBox {
 impl VinylBox {
     fn new(cfg: VinylBoxCfg) -> Self {
         // Initial offset
-        let offset = Point::new(cfg.width + cfg.glue_flap + cfg.thick_n(5), 0.0)
-            .shift_xy(VIEWPORT_OFFSET, VIEWPORT_OFFSET);
+        let offset =
+            Point::new(cfg.width + cfg.glue_flap, 0.0).shift_xy(VIEWPORT_OFFSET, VIEWPORT_OFFSET);
         Self {
             cfg,
             offset,
@@ -105,6 +107,7 @@ impl VinylBox {
         self.draw_top_lid();
         self.draw_side_walls();
         self.draw_main_walls();
+        self.draw_bottom_stripe();
 
         self.result
     }
@@ -115,6 +118,11 @@ impl VinylBox {
 
     fn square_cut_w(&self) -> SquareElement {
         SquareElement::cut(self.cfg.thick_n(2), self.cfg.thickness)
+    }
+
+    fn main_wall_length(&self) -> f64 {
+        // задняя стенка минус толщина круговой накладки
+        self.cfg.length - self.cfg.thick_n(2)
     }
 
     fn draw_top_lid(&mut self) {
@@ -208,8 +216,11 @@ impl VinylBox {
     fn draw_side_walls(&mut self) {
         let offset = self.offset.shift_xy(self.cfg.thickness, self.cfg.thickness);
 
-        let side_wall = SquareElement::new(self.cfg.width, self.cfg.height - self.cfg.thickness)
-            .borders(CutType::Cut, CutType::Nope, CutType::Bend, CutType::Bend);
+        let side_wall = SquareElement::new(
+            self.cfg.width - self.cfg.thickness,
+            self.cfg.height - self.cfg.thickness,
+        )
+        .borders(CutType::Cut, CutType::Nope, CutType::Bend, CutType::Bend);
 
         let flap = SquareElement::new(self.cfg.glue_flap + self.cfg.thickness, side_wall.square.h)
             .borders(CutType::Cut, CutType::Nope, CutType::Cut, CutType::Cut);
@@ -219,6 +230,8 @@ impl VinylBox {
             (self.cfg.length - self.cfg.thick_n(4)) / 2.0,
         )
         .borders(CutType::Nope, CutType::Cut, CutType::Cut, CutType::Cut);
+
+        let (side_off, handle) = self.handle_hole(true);
 
         self.result
             .append(side_wall.draw(offset.origin(Origin::TopRight)));
@@ -249,6 +262,15 @@ impl VinylBox {
             ),
         );
 
+        self.result.append(
+            handle.draw(
+                offset
+                    .shift_nx(side_off - self.cfg.thickness)
+                    .shift_y(STRIPE_HANDLE_OFFSET)
+                    .origin(Origin::TopRight),
+            ),
+        );
+
         let roffset = offset.shift_x(self.cfg.length - self.cfg.thick_n(2));
 
         self.result
@@ -272,13 +294,28 @@ impl VinylBox {
             .append(self.square_cut_w().draw(
                 roffset.shift_xy(flap_bot.square.w + self.cfg.thickness, side_wall.square.h),
             ));
+
+        self.result.append(
+            handle.draw(
+                roffset
+                    .shift_x(side_off - self.cfg.thickness)
+                    .shift_y(STRIPE_HANDLE_OFFSET),
+            ),
+        );
+
+        let offset_stripe = offset
+            .shift_nx(self.cfg.thickness)
+            .shift_y(side_wall.square.h)
+            .shift_y(flap_bot.square.h);
+
+        self.draw_vertical_half_stripes(self.cfg.length, offset_stripe);
     }
 
     fn draw_main_walls(&mut self) {
         let offset = self.offset.shift_x(self.cfg.thickness);
 
         let back_wall = SquareElement::new(
-            self.cfg.length - self.cfg.thick_n(2),
+            self.main_wall_length(),
             self.cfg.height + self.cfg.thickness,
         )
         .borders(CutType::Nope, CutType::Bend, CutType::Bend, CutType::Bend);
@@ -316,5 +353,112 @@ impl VinylBox {
             .append(self.square_cut().draw(offset.shift_x(front_wall.square.w)));
 
         self.offset.y = offset.shift_y(front_wall.square.h).y;
+    }
+
+    fn draw_bottom_stripe(&mut self) {
+        // let offset = self.offset.shift_y(5.0);
+        let offset = self.offset;
+
+        let front = SquareElement::cut(self.cfg.length - self.cfg.glue_flap * 2.0, STRIPE_H);
+
+        self.result
+            .append(front.draw(offset.shift_x(self.cfg.glue_flap)));
+
+        /*
+        let offset = offset.shift_y(STRIPE_H + 5.0);
+
+        let side = SquareElement::cut(self.cfg.width, STRIPE_H).border_right(CutType::Bend);
+        let (side_off, handle) = self.handle_hole(true);
+
+        self.result
+            .append(side.draw(offset.origin(Origin::TopRight)));
+
+        self.result.append(
+            handle.draw(
+                offset
+                    .shift_nx(side_off)
+                    .shift_y(STRIPE_HANDLE_OFFSET)
+                    .origin(Origin::TopRight),
+            ),
+        );
+
+        self.result
+            .append(side.mirror_vertical().draw(offset.shift_x(self.cfg.length)));
+
+        self.result.append(
+            handle.draw(
+                offset
+                    .shift_x(self.cfg.length + side_off)
+                    .shift_y(STRIPE_HANDLE_OFFSET),
+            ),
+        );
+
+        let center = SquareElement::new(self.cfg.length, STRIPE_H)
+            .border_top(CutType::Cut)
+            .border_bottom(CutType::Cut);
+
+        self.result.append(center.draw(offset));
+        */
+    }
+
+    fn draw_vertical_half_stripes(&mut self, width: f64, offset: Point) {
+        let (side_off, handle) = self.handle_hole(false);
+
+        let top = SquareElement::cut(STRIPE_H, self.cfg.width).border_bottom(CutType::Bend);
+        let center = SquareElement::cut(STRIPE_H, self.cfg.length / 2.0).border_top(CutType::Nope);
+
+        self.result
+            .append(top.draw(offset.origin(Origin::TopRight)));
+
+        self.result.append(
+            handle.draw(
+                offset
+                    .shift_y(side_off)
+                    .shift_nx(STRIPE_HANDLE_OFFSET)
+                    .origin(Origin::TopRight),
+            ),
+        );
+
+        self.result
+            .append(center.draw(offset.shift_y(top.square.h).origin(Origin::TopRight)));
+
+        self.result.append(top.draw(offset.shift_x(width)));
+
+        self.result.append(
+            handle.draw(
+                offset
+                    .shift_y(side_off)
+                    .shift_x(width + STRIPE_HANDLE_OFFSET),
+            ),
+        );
+
+        self.result
+            .append(center.draw(offset.shift_x(width).shift_y(top.square.h)));
+    }
+
+    fn handle_hole(&self, horizontal: bool) -> (f64, SquareElement) {
+        let height = 25.0;
+        let max_w = 80.0;
+        let min_w = 10.0;
+        let min_side_offset = 25.0;
+
+        if min_side_offset * min_w < self.cfg.width {
+            return (0.0, SquareElement::new(min_w, min_w));
+        }
+
+        let mut width = self.cfg.width - min_side_offset * 2.0;
+        if width > max_w {
+            width = max_w;
+        } else if width < min_w {
+            width = min_w;
+        }
+
+        let side_offset = (self.cfg.width - width) / 2.0;
+
+        if horizontal {
+            (side_offset, SquareElement::cut(width, height))
+        } else {
+            (side_offset, SquareElement::cut(height, width))
+        }
     }
 }
