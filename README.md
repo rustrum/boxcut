@@ -22,13 +22,15 @@ cargo install boxcut
 
 ## Запускай
 Теперь должна быть доступна команда `boxcut`.
-Читай справку `-h` и вводи свои аргументы.
+Читай справку через `-H` или `--help` и вводи свои аргументы.
 
 Примеры вот:
 ```shell
 boxcut -V
 
-boxcut -h
+boxcut -H
 
-boxcut -W 100 vinyl
+boxcut vinyl -H
+
+boxcut vinyl -w 100
 ```
