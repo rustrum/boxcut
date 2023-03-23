@@ -1,89 +1,19 @@
-mod box_cube;
+mod box_cuboid;
 mod common;
+pub mod lid;
 mod vinyl;
 
-use clap::Parser;
-use clap_derive::{Parser, Subcommand};
-use common::{ArgsGlobal, Borders, DrawResult, Square};
-use rust_decimal::Decimal;
+use clap::Command;
+use common::{args, DrawResult};
 use svg;
-use svg::node::element::path::Data;
-use svg::node::element::Path;
 use svg::Document;
-use vinyl::ArgsVinyl;
 
-use crate::box_cube::ArgsBoxCube;
-use crate::common::{draw_square, CutType, Point, DEFAULT_FILE_NAME, VIEWPORT_OFFSET};
+use crate::common::VIEWPORT_OFFSET;
 use anyhow::{bail, Result};
-use env_logger::{Builder, Target};
-use log::{log, warn, error, LevelFilter};
-
-#[derive(Subcommand, Debug)]
-enum BoxType {
-    /// Коробка для виниловых пластинок.
-    /// Игнорируется длинна и высота коробки, можно менять только ширину.
-    Vinyl(ArgsVinyl),
-
-    /// Коробка-параллелипипед с крышкой.
-    BoxCube(ArgsBoxCube),
-}
-
-impl BoxType {
-    fn draw_with(self, globs: ArgsGlobal) -> Result<DrawResult> {
-        log::debug!("{:?}", globs);
-        match self {
-            BoxType::Vinyl(args) => args.draw_with(globs),
-            BoxType::BoxCube(args) => args.draw_with(globs),
-        }
-    }
-}
-
-#[derive(Parser, Debug)]
-#[clap(name = "Laser cut box generator", version)]
-struct Args {
-    /// Наружная высота (мм).
-    #[clap(global = true, long, short = 'H')]
-    height: Option<Decimal>,
-
-    /// Наружная длинна / более длинная сторона (мм).
-    #[clap(global = true, long, short = 'L')]
-    length: Option<Decimal>,
-
-    /// Наружная ширина / более короткая сторона (мм).
-    #[clap(global = true, long, short = 'W')]
-    width: Option<Decimal>,
-
-    /// Толщина картона (2мм по умолчанию).
-    #[clap(global = true, long, short = 'T')]
-    thickness: Option<Decimal>,
-
-    /// Имя/путь к .SVG файлу с результатом,
-    /// если не указано будет создан файл в текущей папке,
-    /// существущий файл будет перезаписан.
-    #[clap(global = true, long, short = 'F')]
-    file: Option<String>,
-
-    /// [НЕ работает пока] Рисовать линии изгиба прерывисто,
-    /// что бы не возиться с настройками и просто резать.
-    #[clap(global = true, long, short = 'D')]
-    dashed: Option<bool>,
-
-    /// Тип коробоки
-    #[command(subcommand)]
-    box_type: BoxType,
-}
-
-impl ArgsGlobal {
-    fn from(args: &Args) -> Result<Self> {
-        Ok(ArgsGlobal {
-            height: args.height,
-            length: args.length,
-            width: args.width,
-            thickness: args.thickness,
-            file: args.file.clone(),
-        })
-    }
-}
+use clap::error::ErrorKind;
+use common::args::ArgsGlobal;
+use env_logger::Builder;
+use log::LevelFilter;
 
 fn main() {
     let mut builder = Builder::from_default_env();
@@ -99,23 +29,49 @@ fn main() {
     }
 }
 
+fn cli_build() -> Command {
+    let mut cmd = args::cli_base_args();
+    cmd = box_cuboid::cli_build(cmd);
+    cmd = vinyl::cli_build(cmd);
+    cmd = lid::cli_build(cmd);
+    cmd
+}
+
 fn execute() -> Result<()> {
-    let args = Args::parse();
-    let globs = ArgsGlobal::from(&args)?;
-
-    if globs.thickness.is_none() {
-        bail!("Нужно указать толщину материала");
-    }
-
-    if globs.width.is_some() && globs.length.is_some() {
-        let w = globs.width.unwrap();
-        let l = globs.length.unwrap();
-        if w > l {
-            error!("Ширина коробки {}мм должна быть меньше длинны {}мм", w, l);
+    let mut cli = cli_build();
+    let matches = cli.clone().try_get_matches().unwrap_or_else(|e| {
+        match e.kind() {
+            ErrorKind::DisplayHelp
+            | ErrorKind::DisplayVersion
+            | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => {}
+            _ => {
+                cli.print_help().unwrap();
+                println!("\n(o_O) ОШИБОЧКА!\n");
+            }
         }
-    }
+        e.exit()
+    });
 
-    let draw_res = args.box_type.draw_with(globs.clone())?;
+    let globs = ArgsGlobal::from_matches(&matches);
+
+    // if globs.width.is_some() && globs.length.is_some() {
+    //     let w = globs.width.unwrap();
+    //     let l = globs.length.unwrap();
+    //     if w > l {
+    //         error!("Ширина коробки {}мм должна быть меньше длинны {}мм", w, l);
+    //     }
+    // }
+
+    let draw_res = match matches.subcommand() {
+        Some((vinyl::CLI_SUBCOMMAND, subm)) => vinyl::cli_draw(subm),
+        Some((box_cuboid::CLI_SUBCOMMAND, subm)) => box_cuboid::cli_draw(subm),
+        Some((lid::CLI_SUBCOMMAND, subm)) => lid::cli_draw(subm),
+        _ => {
+            log::error!("No subcommand. Should not execute here");
+            std::process::exit(42);
+        }
+    }?;
+
     write_svg(globs, draw_res)
 }
 

@@ -1,5 +1,4 @@
-use crate::common::{draw_line, CutType, DrawResult, Origin, Point};
-use svg::node::element::Path;
+use crate::common::{draw_line, CutType, DrawResult, Point};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Square {
@@ -49,19 +48,6 @@ impl Borders {
     pub fn nope() -> Self {
         Self::new(CutType::Nope, CutType::Nope, CutType::Nope, CutType::Nope)
     }
-
-    pub fn cut_top(&self) -> bool {
-        !self.top.dont_cut()
-    }
-    pub fn cut_right(&self) -> bool {
-        !self.right.dont_cut()
-    }
-    pub fn cut_bottom(&self) -> bool {
-        !self.bottom.dont_cut()
-    }
-    pub fn cut_left(&self) -> bool {
-        !self.left.dont_cut()
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -83,10 +69,6 @@ impl SquareElement {
             borders: Borders::new_cut(),
             square: Square::new(w, h),
         }
-    }
-
-    pub fn new_square(side: f64) -> Self {
-        Self::new(side, side)
     }
 
     pub fn with_borders(&self, borders: Borders) -> Self {
@@ -177,7 +159,7 @@ impl SquareElement {
         let to = from.shift_xy(0.0, self.square.h * -1.0);
         paths.push(draw_line(from, to, &self.borders.left));
         max.update_max(to);
-        from = to;
+        // from = to;
 
         DrawResult::new(paths.into_iter().filter_map(|v| v).collect(), max)
     }

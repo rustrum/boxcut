@@ -1,45 +1,39 @@
-use anyhow::{bail, Result};
-use clap_derive::Args;
-use lazy_static::lazy_static;
-use log::log;
+use anyhow::Result;
+use clap::{ArgMatches, Command};
 use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::Decimal;
 
-use crate::common::{
-    draw_square, ArgsGlobal, Borders, CutType, DrawResult, Origin, Point, Square, SquareElement,
-    VIEWPORT_OFFSET,
-};
-
-use svg::node::element::Path;
+use crate::common::args::{cli_help_arg, GlueFlap, Thickness, Width};
+use crate::common::{Borders, CutType, DrawResult, Origin, Point, SquareElement, VIEWPORT_OFFSET};
+use crate::lid::LidHeight;
 
 const INNER_H: f64 = 330.0;
 const INNER_L: f64 = 330.0;
 const STRIPE_H: f64 = 90.0;
-const STRIPE_HANDLE_OFFSET: f64 = 35.0;
+const STRIPE_HANDLE_TOP_OFFSET: f64 = 35.0;
 
 const VINYL_FIE_NAME: &str = "LaserCutVinylBox.svg";
 
-#[derive(Args, Debug)]
-pub struct ArgsVinyl {
-    /// Длинна лепестка для склеивания мм.
-    #[clap(long, default_value = "40.0")]
-    flap_glue: Decimal,
+pub const CLI_SUBCOMMAND: &str = "vinyl";
 
-    /// Высота бортика крышки мм.
-    #[clap(long, default_value = "40.0")]
-    lid: Decimal,
+pub fn cli_build(root: Command) -> Command {
+    let c = Command::new(CLI_SUBCOMMAND)
+        .about("Коробка для виниловых пластинок.")
+        .arg(cli_help_arg())
+        .arg_required_else_help(true)
+        .arg(Width::arg())
+        .arg(LidHeight::arg())
+        .arg(Thickness::arg())
+        .arg(GlueFlap::arg());
+
+    root.subcommand(c)
 }
 
-impl ArgsVinyl {
-    pub fn draw_with(self, globs: ArgsGlobal) -> Result<DrawResult> {
-        log::debug!("{:?}", self);
+pub fn cli_draw(m: &ArgMatches) -> Result<DrawResult> {
+    let cfg = VinylBoxCfg::from(m)?;
+    log::info!("Коробка для винила в работе.");
 
-        let cfg = VinylBoxCfg::new(self, globs)?;
-        log::info!("Коробка для винила в работе. Толщина {}mm", cfg.width);
-
-        let bx = VinylBox::new(cfg);
-        Ok(bx.draw())
-    }
+    let bx = VinylBox::new(cfg);
+    Ok(bx.draw())
 }
 
 #[derive(Debug)]
@@ -59,28 +53,15 @@ impl VinylBoxCfg {
 }
 
 impl VinylBoxCfg {
-    pub fn new(args: ArgsVinyl, globs: ArgsGlobal) -> Result<Self> {
-        if globs.height.is_some() || globs.length.is_some() {
-            log::warn!("ВНИМАНИЕ! Введенная длинна и высота коробки игнорируется.")
-        }
-
-        if globs.width.is_none() {
-            bail!("Нужно обязательно указать ширину коробки в мм.");
-        }
-
-        let thickn = globs
-            .thickness
-            .expect("Толщина материала")
-            .to_f64()
-            .unwrap();
-
+    pub fn from(m: &ArgMatches) -> Result<Self> {
+        let thickn = Thickness::extract(m).unwrap().to_f64().unwrap();
         Ok(Self {
-            thickness: thickn,
-            glue_flap: args.flap_glue.to_f64().unwrap(),
-            lid_height: args.lid.to_f64().unwrap(),
+            thickness: Thickness::extract(m).unwrap().to_f64().unwrap(),
+            glue_flap: GlueFlap::extract(m).unwrap().to_f64().unwrap(),
+            lid_height: LidHeight::extract(m).unwrap().to_f64().unwrap(),
             height: INNER_H + thickn * 3.0,
             length: INNER_L + thickn * 4.0,
-            width: globs.width.unwrap().to_f64().unwrap(),
+            width: Width::extract(m).unwrap().to_f64().unwrap(),
         })
     }
 }
@@ -127,6 +108,7 @@ impl VinylBox {
 
     fn draw_top_lid(&mut self) {
         let lid_len = self.cfg.length + self.cfg.thick_n(2);
+        let lid_width = self.cfg.width + self.cfg.thick_n(2);
         let offset = self.offset.shift_nx(self.cfg.thick_n(1));
 
         let top_flap = SquareElement::new(
@@ -161,8 +143,12 @@ impl VinylBox {
 
         let offset = offset.shift_y(lid_front_side.square.h);
 
-        let lid_top_wall = SquareElement::new(lid_len, self.cfg.width + self.cfg.thick_n(2))
-            .borders(CutType::Nope, CutType::Bend, CutType::Bend, CutType::Bend);
+        let lid_top_wall = SquareElement::new(lid_len, lid_width).borders(
+            CutType::Nope,
+            CutType::Bend,
+            CutType::Bend,
+            CutType::Bend,
+        );
 
         self.result.append(lid_top_wall.draw(offset));
 
@@ -187,11 +173,8 @@ impl VinylBox {
             ),
         );
 
-        let lid_side_wall = SquareElement::new(
-            self.cfg.lid_height,
-            self.cfg.width + self.cfg.thickness,
-        )
-        .borders(CutType::Nope, CutType::Nope, CutType::Cut, CutType::Cut);
+        let lid_side_wall = SquareElement::new(self.cfg.lid_height, lid_width - self.cfg.thickness)
+            .borders(CutType::Nope, CutType::Nope, CutType::Cut, CutType::Cut);
 
         self.result.append(
             lid_side_wall.draw(offset.shift_y(self.cfg.thick_n(1)).origin(Origin::TopRight)),
@@ -216,14 +199,15 @@ impl VinylBox {
     fn draw_side_walls(&mut self) {
         let offset = self.offset.shift_xy(self.cfg.thickness, self.cfg.thickness);
 
-        let side_wall = SquareElement::new(
-            self.cfg.width - self.cfg.thickness,
-            self.cfg.height - self.cfg.thickness,
-        )
-        .borders(CutType::Cut, CutType::Nope, CutType::Bend, CutType::Bend);
+        let side_wall = SquareElement::new(self.cfg.width, self.cfg.height - self.cfg.thickness)
+            .borders(CutType::Cut, CutType::Nope, CutType::Bend, CutType::Bend);
 
-        let flap = SquareElement::new(self.cfg.glue_flap + self.cfg.thickness, side_wall.square.h)
-            .borders(CutType::Cut, CutType::Nope, CutType::Cut, CutType::Cut);
+        let flap = SquareElement::new(self.cfg.glue_flap, side_wall.square.h).borders(
+            CutType::Cut,
+            CutType::Nope,
+            CutType::Cut,
+            CutType::Cut,
+        );
 
         let flap_bot = SquareElement::new(
             self.cfg.width - self.cfg.thick_n(3),
@@ -232,6 +216,11 @@ impl VinylBox {
         .borders(CutType::Nope, CutType::Cut, CutType::Cut, CutType::Cut);
 
         let (side_off, handle) = self.handle_hole(true);
+        let handle_top_offset = if STRIPE_HANDLE_TOP_OFFSET < self.cfg.lid_height {
+            self.cfg.lid_height
+        } else {
+            STRIPE_HANDLE_TOP_OFFSET
+        };
 
         self.result
             .append(side_wall.draw(offset.origin(Origin::TopRight)));
@@ -266,7 +255,7 @@ impl VinylBox {
             handle.draw(
                 offset
                     .shift_nx(side_off - self.cfg.thickness)
-                    .shift_y(STRIPE_HANDLE_OFFSET)
+                    .shift_y(handle_top_offset)
                     .origin(Origin::TopRight),
             ),
         );
@@ -299,7 +288,7 @@ impl VinylBox {
             handle.draw(
                 roffset
                     .shift_x(side_off - self.cfg.thickness)
-                    .shift_y(STRIPE_HANDLE_OFFSET),
+                    .shift_y(handle_top_offset),
             ),
         );
 
@@ -356,10 +345,12 @@ impl VinylBox {
     }
 
     fn draw_bottom_stripe(&mut self) {
-        // let offset = self.offset.shift_y(5.0);
-        let offset = self.offset;
+        let offset = self.offset.shift_y(5.0);
 
-        let front = SquareElement::cut(self.cfg.length - self.cfg.glue_flap * 2.0, STRIPE_H);
+        let front = SquareElement::cut(
+            self.cfg.length - (self.cfg.thick_n(2) + self.cfg.glue_flap * 2.0),
+            STRIPE_H,
+        );
 
         self.result
             .append(front.draw(offset.shift_x(self.cfg.glue_flap)));
@@ -404,36 +395,46 @@ impl VinylBox {
     fn draw_vertical_half_stripes(&mut self, width: f64, offset: Point) {
         let (side_off, handle) = self.handle_hole(false);
 
-        let top = SquareElement::cut(STRIPE_H, self.cfg.width).border_bottom(CutType::Bend);
+        let top = SquareElement::cut(STRIPE_H, self.cfg.width + self.cfg.thickness)
+            .border_bottom(CutType::Bend);
         let center = SquareElement::cut(STRIPE_H, self.cfg.length / 2.0).border_top(CutType::Nope);
+        let handle_top_offset = if STRIPE_HANDLE_TOP_OFFSET < self.cfg.lid_height {
+            self.cfg.lid_height
+        } else {
+            STRIPE_HANDLE_TOP_OFFSET
+        };
 
         self.result
             .append(top.draw(offset.origin(Origin::TopRight)));
-
-        self.result.append(
-            handle.draw(
-                offset
-                    .shift_y(side_off)
-                    .shift_nx(STRIPE_HANDLE_OFFSET)
-                    .origin(Origin::TopRight),
-            ),
-        );
 
         self.result
             .append(center.draw(offset.shift_y(top.square.h).origin(Origin::TopRight)));
 
         self.result.append(top.draw(offset.shift_x(width)));
 
-        self.result.append(
-            handle.draw(
-                offset
-                    .shift_y(side_off)
-                    .shift_x(width + STRIPE_HANDLE_OFFSET),
-            ),
-        );
-
         self.result
             .append(center.draw(offset.shift_x(width).shift_y(top.square.h)));
+
+        if handle_top_offset < top.square.w {
+            // left hole
+            self.result.append(
+                handle.draw(
+                    offset
+                        .shift_y(side_off + self.cfg.thickness)
+                        .shift_nx(handle_top_offset)
+                        .origin(Origin::TopRight),
+                ),
+            );
+
+            // right hole
+            self.result.append(
+                handle.draw(
+                    offset
+                        .shift_y(side_off + self.cfg.thickness)
+                        .shift_x(width + handle_top_offset),
+                ),
+            );
+        }
     }
 
     fn handle_hole(&self, horizontal: bool) -> (f64, SquareElement) {

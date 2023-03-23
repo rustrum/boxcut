@@ -1,36 +1,35 @@
-use anyhow::{bail, Result};
-use clap_derive::Args;
-use log::log;
+use anyhow::Result;
+use clap::{ArgMatches, Command};
 use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::Decimal;
 
-use crate::common::{
-    ArgsGlobal, Borders, CutType, DrawResult, Origin, Point, SquareElement, VIEWPORT_OFFSET,
-};
+use crate::common::args::{cli_help_arg, GlueFlap, Height, Length, Thickness, Width};
+use crate::common::{Borders, CutType, DrawResult, Origin, Point, SquareElement, VIEWPORT_OFFSET};
+use crate::lid::LidHeight;
 
 const BOX_CUBE_FIE_NAME: &str = "LaserCutBoxCube.svg";
 
-#[derive(Args, Debug)]
-pub struct ArgsBoxCube {
-    /// Длинна лепестка для склеивания мм.
-    #[clap(long, default_value = "40.0")]
-    flap_glue: Decimal,
+pub const CLI_SUBCOMMAND: &str = "box-cuboid";
 
-    /// Высота бортика крышки мм.
-    #[clap(long, default_value = "40.0")]
-    lid: Decimal,
+pub fn cli_build(root: Command) -> Command {
+    let c = Command::new(CLI_SUBCOMMAND)
+        .about("Коробка-параллелипипед с крышкой.")
+        .arg(cli_help_arg())
+        .arg_required_else_help(true)
+        .arg(Length::arg())
+        .arg(Width::arg())
+        .arg(Height::arg())
+        .arg(LidHeight::arg())
+        .arg(GlueFlap::arg());
+
+    root.subcommand(c)
 }
 
-impl ArgsBoxCube {
-    pub fn draw_with(self, globs: ArgsGlobal) -> Result<DrawResult> {
-        log::debug!("{:?}", self);
+pub fn cli_draw(m: &ArgMatches) -> Result<DrawResult> {
+    let cfg = BoxCubeCfg::new(m)?;
+    log::info!("Коробка-параллелипипед в работе.");
 
-        let cfg = BoxCubeCfg::new(self, globs)?;
-        log::info!("Коробка-параллелипипед в работе.");
-
-        let bx = BoxCube::new(cfg);
-        Ok(bx.draw())
-    }
+    let bx = BoxCube::new(cfg);
+    Ok(bx.draw())
 }
 
 #[derive(Debug)]
@@ -50,22 +49,14 @@ impl BoxCubeCfg {
 }
 
 impl BoxCubeCfg {
-    pub fn new(args: ArgsBoxCube, globs: ArgsGlobal) -> Result<Self> {
-        if globs.width.is_none() || globs.height.is_none() || globs.length.is_none() {
-            bail!("Нужно указать длинну, ширину и высоту коробки в мм.");
-        }
-
+    pub fn new(m: &ArgMatches) -> Result<Self> {
         Ok(Self {
-            thickness: globs
-                .thickness
-                .expect("Толщина материала")
-                .to_f64()
-                .unwrap(),
-            glue_flap: args.flap_glue.to_f64().unwrap(),
-            lid_height: args.lid.to_f64().unwrap(),
-            height: globs.height.unwrap().to_f64().unwrap(),
-            length: globs.length.unwrap().to_f64().unwrap(),
-            width: globs.width.unwrap().to_f64().unwrap(),
+            thickness: Thickness::extract(m).unwrap().to_f64().unwrap(),
+            glue_flap: GlueFlap::extract(m).unwrap().to_f64().unwrap(),
+            lid_height: LidHeight::extract(m).unwrap().to_f64().unwrap(),
+            height: Height::extract(m).unwrap().to_f64().unwrap(),
+            length: Length::extract(m).unwrap().to_f64().unwrap(),
+            width: Width::extract(m).unwrap().to_f64().unwrap(),
         })
     }
 }
@@ -104,6 +95,7 @@ impl BoxCube {
 
     fn draw_top_lid(&mut self) {
         let lid_len = self.cfg.length + self.cfg.thick_n(2);
+        let lid_width = self.cfg.width + self.cfg.thick_n(2);
         let offset = self.offset.shift_nx(self.cfg.thick_n(1));
 
         let top_flap = SquareElement::new(
@@ -134,16 +126,18 @@ impl BoxCube {
             CutType::Cut,
         );
 
-        self.result
-            .append(lid_front_side.draw(offset));
+        self.result.append(lid_front_side.draw(offset));
 
         let offset = offset.shift_y(lid_front_side.square.h);
 
-        let lid_top_wall = SquareElement::new(lid_len, self.cfg.width + self.cfg.thick_n(2))
-            .borders(CutType::Nope, CutType::Bend, CutType::Bend, CutType::Bend);
+        let lid_top_wall = SquareElement::new(lid_len, lid_width).borders(
+            CutType::Nope,
+            CutType::Bend,
+            CutType::Bend,
+            CutType::Bend,
+        );
 
-        self.result
-            .append(lid_top_wall.draw(offset));
+        self.result.append(lid_top_wall.draw(offset));
 
         let side_flap =
             SquareElement::new(self.cfg.lid_height - self.cfg.thickness, self.cfg.glue_flap)
@@ -166,39 +160,25 @@ impl BoxCube {
             ),
         );
 
-        let lid_side_wall = SquareElement::new(
-            self.cfg.lid_height,
-            self.cfg.width + self.cfg.thickness,
-        )
-        .borders(CutType::Nope, CutType::Nope, CutType::Cut, CutType::Cut);
+        let lid_side_wall = SquareElement::new(self.cfg.lid_height, lid_width - self.cfg.thickness)
+            .borders(CutType::Nope, CutType::Nope, CutType::Cut, CutType::Cut);
 
         self.result.append(
-            lid_side_wall.draw(
-                offset
-                    .shift_y(self.cfg.thick_n(1))
-                    .origin(Origin::TopRight),
-            ),
+            lid_side_wall.draw(offset.shift_y(self.cfg.thick_n(1)).origin(Origin::TopRight)),
         );
 
         self.result.append(
-            lid_side_wall.mirror_vertical().draw(
-                offset
-                    .shift_xy(lid_len, self.cfg.thickness),
-            ),
+            lid_side_wall
+                .mirror_vertical()
+                .draw(offset.shift_xy(lid_len, self.cfg.thickness)),
         );
 
         // Small cut offs
-        self.result.append(
-            self.square_cut().draw(
-                offset
-                         .origin(Origin::TopRight),
-            ),
-        );
+        self.result
+            .append(self.square_cut().draw(offset.origin(Origin::TopRight)));
 
-        self.result.append(
-            self.square_cut()
-                .draw(offset.shift_x(lid_len)),
-        );
+        self.result
+            .append(self.square_cut().draw(offset.shift_x(lid_len)));
 
         self.offset.y = offset.shift_y(lid_top_wall.square.h).y;
     }

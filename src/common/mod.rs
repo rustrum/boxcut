@@ -1,27 +1,18 @@
 use core::option::Option;
 
-use rust_decimal::Decimal;
 use svg::node::element::path::{Data, Parameters};
 use svg::node::element::Path;
 
+pub mod args;
 mod square;
 
 pub use square::*;
 
-pub const VIEWPORT_OFFSET: f64 = 10.0;
+pub const VIEWPORT_OFFSET: f64 = 5.0;
 
-pub const DEFAULT_THICKNESS: f64 = 2.0;
+// pub const DEFAULT_THICKNESS: f64 = 2.0;
 
 pub const DEFAULT_FILE_NAME: &str = "LaserCutBox.svg";
-
-#[derive(Debug, Clone)]
-pub struct ArgsGlobal {
-    pub height: Option<Decimal>,
-    pub length: Option<Decimal>,
-    pub width: Option<Decimal>,
-    pub thickness: Option<Decimal>,
-    pub file: Option<String>,
-}
 
 #[derive(Debug, Clone)]
 pub struct DrawResult {
@@ -182,17 +173,17 @@ pub enum CutType {
 }
 
 impl CutType {
-    pub fn dont_cut(&self) -> bool {
+    pub fn is_cuttable(&self) -> bool {
         match self {
-            CutType::Nope => true,
-            _ => false,
+            CutType::Bend | CutType::Cut => true,
+            CutType::Nope => false,
         }
     }
 }
 
 fn path_for(tp: &CutType, data: Data) -> Path {
     let mut stroke = "white";
-    let mut width = 0.2;
+    let width = 0.2;
     match tp {
         CutType::Nope => {}
         CutType::Cut => {
@@ -213,7 +204,7 @@ fn path_for(tp: &CutType, data: Data) -> Path {
 }
 
 pub fn draw_line(from: Point, to: Point, tp: &CutType) -> Option<Path> {
-    if tp.dont_cut() {
+    if !tp.is_cuttable() {
         return None;
     }
 
@@ -222,32 +213,4 @@ pub fn draw_line(from: Point, to: Point, tp: &CutType) -> Option<Path> {
         .line_to(to.as_parameters());
 
     Some(path_for(tp, data))
-}
-
-// Depracated
-pub fn draw_square(offset: Point, shape: Square, borders: Borders) -> Vec<Path> {
-    let mut paths = Vec::new();
-    let mut from = offset;
-
-    // TOP
-    let to = from.shift_xy(shape.w, 0.0);
-    paths.push(draw_line(from, to, &borders.top));
-    from = to;
-
-    // RIGHT
-    let to = from.shift_xy(0.0, shape.h);
-    paths.push(draw_line(from, to, &borders.right));
-    from = to;
-
-    // BOTTOM
-    let to = from.shift_xy(shape.w * -1.0, 0.0);
-    paths.push(draw_line(from, to, &borders.bottom));
-    from = to;
-
-    // LEFT
-    let to = from.shift_xy(0.0, shape.h * -1.0);
-    paths.push(draw_line(from, to, &borders.left));
-    from = to;
-
-    paths.into_iter().filter_map(|v| v).collect()
 }
