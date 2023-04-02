@@ -1,6 +1,6 @@
 [package]
 name = "boxcut"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 license-file = "LICENSE.md"
 description = "CLI програмка для создания SVG дизайнов карторнных коробок для лазерного резака."

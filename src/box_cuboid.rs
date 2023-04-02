@@ -19,7 +19,9 @@ pub fn cli_build(root: Command) -> Command {
         .arg(Width::arg())
         .arg(Height::arg())
         .arg(LidHeight::arg())
-        .arg(GlueFlap::arg());
+        .arg(GlueFlap::arg())
+        .arg(Thickness::arg())
+        ;
 
     root.subcommand(c)
 }
